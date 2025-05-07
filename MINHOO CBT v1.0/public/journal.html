@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>감정 일지</title>
+  <link rel="stylesheet" href="style.css"> 
+  <style>
+    body {
+      font-family: 'KoPubWorld Dotum', sans-serif;
+      background-color: #f4f7f6;
+      color: #333;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .container {
+      background-color: white;
+      padding: 25px;
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      max-width: 700px;
+      text-align: left;
+    }
+    h1 {
+      text-align: center;
+      color: #0095FF;
+      margin-bottom: 25px;
+    }
+    .section-title {
+      font-size: 1.3em;
+      font-weight: bold;
+      color: #333;
+      margin-top: 20px;
+      margin-bottom: 10px;
+      border-bottom: 2px solid #0095FF;
+      padding-bottom: 5px;
+    }
+    .journal-meta {
+      margin-bottom: 20px;
+      font-size: 0.9em;
+      color: #555;
+    }
+    .journal-meta p {
+      margin: 5px 0;
+    }
+    .journal-content-box {
+      background-color: #f9f9f9;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+      white-space: pre-wrap;
+      line-height: 1.6;
+    }
+    .conversation-log-journal {
+      max-height: 250px;
+      overflow-y: auto;
+      border: 1px dashed #ccc;
+      padding: 10px;
+      margin-top: 10px;
+      border-radius: 4px;
+    }
+    .conversation-log-journal p {
+      margin-bottom: 8px;
+      font-size: 0.95em;
+    }
+    .conversation-log-journal .user-message strong { color: #28a745; }
+    .conversation-log-journal .assistant-message strong { color: #17a2b8; }
+    .conversation-log-journal .system-message strong { color: #6c757d; }
+
+    .emotion-details ul {
+      list-style-type: none;
+      padding-left: 0;
+    }
+    .emotion-details li {
+      margin-bottom: 5px;
+    }
+    .emotion-details li strong {
+        min-width: 100px;
+        display: inline-block;
+    }
+    .emotion-details li span {
+        font-weight: bold;
+        color: #007bff;
+    }
+    /* 주요 대화 태그 스타일 */
+    .extracted-tags-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding-top: 10px;
+    }
+    .tag {
+        padding: 6px 12px;
+        border-radius: 16px;
+        font-size: 0.9em;
+        font-weight: 500;
+        background-color: #e9ecef;
+        color: #495057;
+        border: 1px solid #dee2e6;
+    }
+    .tag.joy { background-color: #fff3cd; color: #856404; border-color: #ffeeba; }
+    .tag.sadness { background-color: #d1ecf1; color: #0c5460; border-color: #bee5eb; }
+    .tag.anger { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+    .tag.anxiety { background-color: #e2d9f3; color: #40236C; border-color: #d6c0f0; }
+    .tag.content { background-color: #d4edda; color: #155724; border-color: #c3e6cb; } /* 내용 관련 태그 */
+    .tag.person { background-color: #f0e68c; color: #8B4513; border-color: #E0DCBF; } /* 인물 관련 태그 */
+
+
+    .button-container {
+      text-align: center;
+      margin-top: 30px;
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+    }
+    .btn-action {
+        padding: 10px 20px;
+        text-decoration: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: bold;
+        border: none;
+        cursor: pointer;
+    }
+    .btn-primary {
+        background-color: #0095FF;
+        color: white;
+    }
+    .btn-secondary {
+        background-color: #D2E9FF;
+        color: #333;
+    }
+
+    .popup-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background-color: rgba(0, 0, 0, 0.6); display: none;
+      justify-content: center; align-items: center; z-index: 1000;
+    }
+    .popup-content {
+      background-color: white; padding: 30px; border-radius: 10px;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.3); text-align: center;
+      width: 90%; max-width: 400px;
+    }
+    .popup-content h3 { margin-top: 0; margin-bottom: 20px; color: #333; }
+    .popup-buttons button {
+      width: 100%; padding: 12px; font-size: 16px; font-weight: bold;
+      border-radius: 8px; border: none; cursor: pointer; margin-bottom: 10px;
+    }
+    .popup-buttons button:last-child { margin-bottom: 0; }
+    .btn-continue-topic { background-color: #D2E9FF; color: #333; }
+    .btn-new-topic { background-color: #0095FF; color: white; }
+    .btn-popup-close { background-color: #B6B6B6; color: white; margin-top: 15px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>감정 일지</h1>
+
+    <div class="journal-meta">
+      <p><strong>일지 작성일:</strong> <span id="journal-date">로딩 중...</span></p>
+      <p><strong>주요 감정 (예시):</strong> <span id="journal-main-emotion">로딩 중...</span></p>
+    </div>
+
+    <div class="section-title">오늘의 대화 요약 (예시)</div>
+    <div id="journal-summary" class="journal-content-box">
+      <p>요약 내용을 불러오는 중입니다...</p>
+    </div>
+
+    <div class="section-title">감정 분석</div>
+    <div id="journal-emotion-analysis" class="journal-content-box emotion-details">
+      <ul>
+        <li><strong>기쁨 (Joy):</strong> <span id="emotion-joy">0</span>회</li>
+        <li><strong>슬픔 (Sadness):</strong> <span id="emotion-sadness">0</span>회</li>
+        <li><strong>분노 (Anger):</strong> <span id="emotion-anger">0</span>회</li>
+        <li><strong>불안 (Anxiety/Fear):</strong> <span id="emotion-anxiety">0</span>회</li>
+      </ul>
+      <p><strong>측정된 소리 크기 (0-1):</strong> <span id="journal-audio-level">정보 없음</span></p>
+    </div>
+    
+    <div class="section-title">전체 대화 내용</div>
+    <div id="journal-conversation-log" class="journal-content-box conversation-log-journal">
+      <p>대화 내용을 불러오는 중입니다...</p>
+    </div>
+
+    <div class="section-title">주요 대화 태그</div>
+    <div id="extracted-tags-display" class="journal-content-box extracted-tags-container">
+      <p>태그를 추출하는 중입니다...</p>
+    </div>
+
+    <div class="button-container">
+      <button id="btn-back-to-list" class="btn-action btn-secondary">목록으로 돌아가기</button>
+      <button id="btn-continue-conversation" class="btn-action btn-primary">대화 더 이어하기</button>
+    </div>
+  </div>
+
+  <div id="continue-conversation-popup" class="popup-overlay">
+    <div class="popup-content">
+      <h3>어떤 대화를 이어갈까요?</h3>
+      <div class="popup-buttons">
+        <button id="btn-continue-this-topic" class="btn-continue-topic">이 주제에 대한 대화 더 하기</button>
+        <button id="btn-start-new-topic" class="btn-new-topic">다른 내용의 대화 하기</button>
+        <button id="btn-popup-close" class="btn-popup-close">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // import { saveGPTResult } from './js/gpt-save.js'; 
+    // import { formatDateTime } from './js/common-utils.js';
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const journalDateEl = document.getElementById('journal-date');
+      const journalMainEmotionEl = document.getElementById('journal-main-emotion');
+      const journalSummaryEl = document.getElementById('journal-summary');
+      const emotionJoyEl = document.getElementById('emotion-joy');
+      const emotionSadnessEl = document.getElementById('emotion-sadness');
+      const emotionAngerEl = document.getElementById('emotion-anger');
+      const emotionAnxietyEl = document.getElementById('emotion-anxiety');
+      const journalAudioLevelEl = document.getElementById('journal-audio-level');
+      const journalConversationLogEl = document.getElementById('journal-conversation-log');
+      const extractedTagsDisplayEl = document.getElementById('extracted-tags-display'); // 태그 표시 영역
+
+      const btnBackToList = document.getElementById('btn-back-to-list');
+      const btnContinueConversation = document.getElementById('btn-continue-conversation');
+      
+      const continuePopup = document.getElementById('continue-conversation-popup');
+      const btnContinueThisTopic = document.getElementById('btn-continue-this-topic');
+      const btnStartNewTopic = document.getElementById('btn-start-new-topic');
+      const btnPopupClose = document.getElementById('btn-popup-close');
+
+      const storedJournalData = localStorage.getItem('journalEntryData');
+      let journalData = null;
+
+      if (storedJournalData) {
+        try {
+          journalData = JSON.parse(storedJournalData);
+        } catch (e) {
+          console.error("일지 데이터 파싱 오류:", e);
+          journalSummaryEl.textContent = '일지 데이터를 불러오는 데 실패했습니다.';
+          if (btnContinueConversation) btnContinueConversation.disabled = true;
+          return;
+        }
+      } else {
+        journalSummaryEl.textContent = '저장된 일지 데이터가 없습니다. talk.html에서 대화를 시작해주세요.';
+        journalDateEl.textContent = new Date().toLocaleDateString('ko-KR');
+        journalMainEmotionEl.textContent = '분석 필요';
+        extractedTagsDisplayEl.innerHTML = '<p>표시할 태그가 없습니다.</p>';
+        if (btnContinueConversation) btnContinueConversation.disabled = true;
+        return;
+      }
+
+      journalDateEl.textContent = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+
+      if (journalData.conversationHistory && journalData.conversationHistory.length > 0) {
+        const firstUserMessage = journalData.conversationHistory.find(msg => msg.role === 'user');
+        journalSummaryEl.textContent = firstUserMessage ? 
+            `"${firstUserMessage.content.substring(0, 100)}${firstUserMessage.content.length > 100 ? '...' : ''}" 로 시작된 대화입니다.` : 
+            '대화 요약을 생성 중입니다...';
+        
+        let conversationHtml = '';
+        journalData.conversationHistory.forEach(msg => {
+            const safeContent = (msg.content || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            const speakerClass = msg.role === 'user' ? 'user-message' : (msg.role === 'assistant' ? 'assistant-message' : 'system-message');
+            const speakerName = msg.role === 'user' ? '민후' : (msg.role === 'assistant' ? 'AI 친구' : '안내');
+            conversationHtml += `<p class="${speakerClass}"><strong class="${speakerClass.split('-')[0] + '-strong'}">${speakerName}:</strong> ${safeContent}</p>`;
+        });
+        journalConversationLogEl.innerHTML = conversationHtml;
+
+        // 주요 대화 태그 추출 및 표시
+        const tags = extractConversationTags(journalData.conversationHistory);
+        displayExtractedTags(tags, extractedTagsDisplayEl);
+
+      } else {
+        journalSummaryEl.textContent = '대화 내용이 없습니다.';
+        journalConversationLogEl.innerHTML = '<p>표시할 대화 내용이 없습니다.</p>';
+        extractedTagsDisplayEl.innerHTML = '<p>표시할 태그가 없습니다.</p>';
+      }
+
+      if (journalData.emotions) {
+        emotionJoyEl.textContent = journalData.emotions.joy || '0';
+        emotionSadnessEl.textContent = journalData.emotions.sadness || '0';
+        emotionAngerEl.textContent = journalData.emotions.anger || '0';
+        emotionAnxietyEl.textContent = journalData.emotions.anxiety || '0';
+
+        let mainEmotion = "평온함";
+        let maxCount = 0;
+        if (journalData.emotions.joy > maxCount) { mainEmotion = "기쁨"; maxCount = journalData.emotions.joy; }
+        if (journalData.emotions.sadness > maxCount) { mainEmotion = "슬픔"; maxCount = journalData.emotions.sadness; }
+        if (journalData.emotions.anger > maxCount) { mainEmotion = "분노"; maxCount = journalData.emotions.anger; }
+        if (journalData.emotions.anxiety > maxCount) { mainEmotion = "불안"; maxCount = journalData.emotions.anxiety; }
+        if (maxCount === 0 && journalData.conversationHistory && journalData.conversationHistory.length > 0) mainEmotion = "복합적/중립적";
+        else if (maxCount === 0) mainEmotion = "분석 필요";
+        journalMainEmotionEl.textContent = mainEmotion;
+      } else {
+        journalMainEmotionEl.textContent = '분석 정보 없음';
+      }
+      
+      journalAudioLevelEl.textContent = journalData.audioLevel || '정보 없음';
+
+      // 버튼 이벤트 리스너 (이전과 동일)
+      if (btnBackToList) { /* ... */ }
+      if (btnContinueConversation) { /* ... */ }
+      if (btnPopupClose) { /* ... */ }
+      if (continuePopup) { /* ... */ }
+      if (btnContinueThisTopic) { /* ... */ }
+      if (btnStartNewTopic) { /* ... */ }
+    });
+
+    /**
+     * 대화 내용에서 주요 감정 태그 및 내용/인물 관련 태그를 추출합니다.
+     * @param {Array<Object>} history - 전체 대화 기록.
+     * @returns {Array<Object>} - 추출된 태그 객체 배열. 예: [{text: "화남", type: "anger", count: 2}, {text: "아빠", type: "person", count: 3}]
+     */
+    function extractConversationTags(history) {
+      const tags = [];
+      const emotionKeywords = {
+        joy: ['행복', '신나', '뿌듯', '감사', '만족', '좋아', '즐거', '기대', '편안', '안심', '사랑', '웃겨', '최고', '나아졌어', '다행', '재미있', '훌륭', '멋져'],
+        sadness: ['외로', '우울', '서운', '상처', '속상', '허전', '슬퍼', '눈물', '무기력', '지쳤어', '공허', '버려진', '실망'],
+        anger: ['화나', '짜증', '억울', '답답', '싫어', '속이 뒤집', '무시', '존중받지 못', '부당', '못참겠', '참기 힘든', '분노', '미워', '싸웠어', '화냈더니', '씨발'],
+        anxiety: ['걱정', '무서', '불안', '두려', '긴장', '당황', '초조', '민망', '조심스러', '낯설', '혼란', '잘못될까봐', '겁나', '떨려']
+      };
+      const koreanStopWords = [ // 간단한 한국어 불용어 목록 (확장 필요)
+        '이', '가', '은', '는', '을', '를', '의', '에', '에서', '에게', '으로', '하고', '하다', '했다', '하는', '한',
+        '것', '수', '그', '저', '나', '내', '우리', '너', '그냥', '정말', '너무', '아주', '좀', '더', '같은', '같아',
+        '그리고', '그래서', '그런데', '하지만', '또', '말', '때', '것은', '것이', '것을', '나는', '내가', '너는', '네가'
+      ];
+      const personKeywords = ['아빠', '엄마', '친구', '선생님']; // 주요 인물 키워드
+
+      const wordFrequency = {};
+      const emotionTagCounts = { joy: 0, sadness: 0, anger: 0, anxiety: 0 };
+
+      history.forEach(msg => {
+        if (msg.role === 'user' && typeof msg.content === 'string') {
+          const text = msg.content.toLowerCase();
+          
+          // 1. 감정 키워드 카운트
+          for (const emotionType in emotionKeywords) {
+            emotionKeywords[emotionType].forEach(keyword => {
+              if (text.includes(keyword)) {
+                emotionTagCounts[emotionType]++;
+                // 감정 키워드 자체를 태그로 추가할 수도 있음 (중복 방지 필요)
+                // tags.push({ text: keyword, type: emotionType, count: (tags.find(t=>t.text===keyword)?.count || 0) + 1 });
+              }
+            });
+          }
+
+          // 2. 내용/인물 키워드 빈도수 계산
+          const words = text.replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, "").split(/\s+/); // 특수문자 제거 및 공백 기준 분리
+          words.forEach(word => {
+            if (word.length > 1 && !koreanStopWords.includes(word) && !Object.values(emotionKeywords).flat().includes(word)) {
+              wordFrequency[word] = (wordFrequency[word] || 0) + 1;
+            }
+          });
+        }
+      });
+
+      // 감정 태그 추가 (빈도수가 1 이상인 경우)
+      for (const emotionType in emotionTagCounts) {
+        if (emotionTagCounts[emotionType] > 0) {
+          tags.push({ text: `${emotionType.charAt(0).toUpperCase() + emotionType.slice(1)} 감정 (${emotionTagCounts[emotionType]}회)`, type: emotionType });
+        }
+      }
+      
+      // 내용/인물 키워드 태그 추가 (빈도수 높은 순, 최대 5개)
+      const sortedContentWords = Object.entries(wordFrequency)
+                                    .sort(([,a],[,b]) => b-a)
+                                    .slice(0, 5); // 상위 5개
+      
+      sortedContentWords.forEach(([word, count]) => {
+        let type = 'content';
+        if (personKeywords.includes(word)) {
+            type = 'person';
+        }
+        // 이미 감정 태그로 추가된 단어와 유사한 경우 제외 (선택적)
+        if (!tags.some(tag => tag.text.toLowerCase().includes(word))) {
+             tags.push({ text: `${word} (${count}회)`, type: type });
+        }
+      });
+      
+      // 예시: "아빠"와 "화나"가 같이 언급된 경우 특별 태그 (고도화 필요)
+      // 이 부분은 더 복잡한 문맥 분석이 필요하여 일단 간단한 형태로 남겨둡니다.
+
+      return tags;
+    }
+
+    /**
+     * 추출된 태그들을 화면에 표시합니다.
+     * @param {Array<Object>} tags - 추출된 태그 객체 배열.
+     * @param {HTMLElement} containerEl - 태그를 표시할 부모 HTML 요소.
+     */
+    function displayExtractedTags(tags, containerEl) {
+      if (!tags || tags.length === 0) {
+        containerEl.innerHTML = '<p>추출된 주요 태그가 없습니다.</p>';
+        return;
+      }
+      containerEl.innerHTML = ''; // 이전 내용 지우기
+      tags.forEach(tagInfo => {
+        const tagEl = document.createElement('span');
+        tagEl.className = `tag ${tagInfo.type}`; // 감정, 내용, 인물 등에 따라 클래스 부여
+        tagEl.textContent = tagInfo.text;
+        containerEl.appendChild(tagEl);
+      });
+    }
+
+  </script>
+</body>
+</html>
