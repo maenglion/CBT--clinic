@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=430" />
+  <title>대화하기</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
+  <style>
+    body {
+      font-family: 'KoPubWorld Dotum', sans-serif; margin: 0; padding: 20px;
+      background-color: #ffffff; color: #333; display: flex; flex-direction: column;
+      align-items: center; min-height: calc(100vh - 40px); box-sizing: border-box;
+    }
+    .container { width: 100%; max-width: 400px; text-align: center; }
+    .talk-heading { font-size: 22px; font-weight: bold; margin-top: 30px; margin-bottom: 10px; }
+    .guide-text { font-size: 15px; color: #555; margin-bottom: 30px; line-height: 1.6; }
+    #mic-visualizer {
+      display: block; margin: 0 auto 30px auto; width: 280px; height: 280px;
+      background-color: #e0e0e0; /* 약간 더 어둡게 하여 비활성 상태 표시 */
+      border-radius: 50%;
+    }
+    .banner-wrapper { display: flex; flex-direction: column; align-items: center; gap: 15px; margin-top: 20px; }
+    .banner-btn {
+      width: 300px; height: 55px; font-size: 17px; font-weight: bold;
+      border-radius: 10px; border: none; cursor: pointer;
+      transition: background-color 0.3s ease, color 0.3s ease, opacity 0.3s ease;
+    }
+    .banner-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    .btn-talk { background-color: #FAF07F; color: #333; }
+    .btn-talk.active { background-color: #FFB6C1; color: white; }
+    .btn-interaction { background-color: #D2E9FF; color: #333; }
+    .btn-interaction.analysis-ready { background-color: #0095FF; color: white; }
+
+    .transcript-box {
+      margin-top: 30px; padding: 15px; background-color: #f9f9f9;
+      border-radius: 8px; min-height: 100px; max-height: 300px; overflow-y: auto;
+      font-size: 15px; color: #333; line-height: 1.6; text-align: left;
+      border: 1px solid #eee; width: 100%; box-sizing: border-box; white-space: pre-wrap;
+    }
+    .transcript-box p { margin-bottom: 0.5em; }
+    .transcript-box strong { font-weight: bold; }
+    .transcript-box .user-speaker { color: #28a745; }
+    .transcript-box .assistant-speaker { color: #17a2b8; }
+    .transcript-box .system-speaker { color: #6c757d; font-style: italic; }
+
+    .tts-warning {
+      color: #d9534f; font-size: 0.9em; padding: 10px; background-color: #f2dede;
+      border: 1px solid #ebccd1; border-radius: 4px; margin-bottom: 15px; text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <div id="tts-status-container"></div>
+    <h1 class="talk-heading">민후, 지금 기분은 어때?</h1>
+    <p id="guide-text" class="guide-text">
+      대화하기 버튼을 눌러서 이야기해보자.<br>
+      이야기 중간에 생각을 정리하고 싶으면 [숨 돌리기]를 눌러줘.
+    </p>
+    <canvas id="mic-visualizer"></canvas>
+    <div class="banner-wrapper">
+      <button id="talk-btn" class="banner-btn btn-talk">대화하기</button>
+      <button id="interaction-btn" class="banner-btn btn-interaction">숨 돌리기</button>
+    </div>
+    <div id="transcript" class="transcript-box"></div>
+  </main>
+
+  <script type="module">
+    import { startSTT, stopSTT } from './js/stt.js';
+    import { startTTS } from './js/tts.js';
+    import { getGptResponse } from './js/gpt-dialog.js';
+    import { startVisualizer, stopVisualizer } from './js/visualizer_p5.js';
+
+    const talkBtn = document.getElementById('talk-btn');
+    const interactionBtn = document.getElementById('interaction-btn');
+    const transcriptEl = document.getElementById('transcript');
+    const guideTextEl = document.getElementById('guide-text');
+    const canvasForVisualizer = document.getElementById('mic-visualizer');
+    const ttsStatusContainer = document.getElementById('tts-status-container');
+
+    let isRecording = false;
+    let ttsGenerallySupported = true;
+    let conversationHistory = [];
+    let turnCount = 0;
+    const MAX_TURNS_BEFORE_ANALYSIS = 3;
+    let mediaStreamForP5 = null; // P5.js 시각화에 사용할 스트림 (STT와 별도 관리 시)
+
+    // 페이지 로드 시 초기화
+    window.addEventListener('DOMContentLoaded', () => {
+      canvasForVisualizer.width = 280;
+      canvasForVisualizer.height = 280;
+
+      const continueMode = localStorage.getItem('conversationMode');
+      const historyToContinueJSON = localStorage.getItem('continueConversationHistory');
+
+      if (continueMode === 'continue' && historyToContinueJSON) {
+        try {
+          conversationHistory = JSON.parse(historyToContinueJSON);
+          turnCount = 0; // 이어하기 시 턴 카운트 초기화 또는 이전 상태 로드
+          updateTranscriptDisplay("이전 대화에 이어서 시작합니다. 민후의 다음 이야기를 들려주세요.", "system");
+          guideTextEl.innerHTML = "이전 대화에 이어서 이야기해주세요.<br>[대화하기]를 누르거나, [숨 돌리기]로 AI의 답변을 들어보세요.";
+        } catch (e) {
+          console.error("이어하기 대화 기록 파싱 오류:", e);
+          conversationHistory = [];
+          updateTranscriptDisplay("새로운 대화를 시작합니다. [대화하기] 버튼을 눌러주세요.", "system");
+        }
+        localStorage.removeItem('continueConversationHistory');
+        localStorage.removeItem('conversationMode');
+      } else {
+        // 샘플 데이터 관련 localStorage 항목들 명시적 초기화
+        localStorage.removeItem('userSpeech');
+        localStorage.removeItem('fullConversation');
+        localStorage.removeItem('currentAmplitude');
+        localStorage.removeItem('analysisAudioLevel');
+        localStorage.removeItem('journalEntryData'); // journal.html에서 사용할 데이터도 초기화
+        conversationHistory = [];
+        turnCount = 0;
+        updateTranscriptDisplay("대화하기 버튼을 눌러 민후와 이야기해보세요!", "system");
+      }
+      checkTTSAvailability();
+      // 페이지 로드 시에는 시각화나 STT를 바로 시작하지 않음
+    });
+
+    function checkTTSAvailability() {
+      if (!window.speechSynthesis) {
+        ttsGenerallySupported = false;
+        console.warn("TTS: 이 브라우저에서는 음성 합성을 지원하지 않습니다.");
+        const warningMsgEl = ttsStatusContainer.querySelector('.tts-warning');
+        if (!warningMsgEl) {
+            const warningMsg = document.createElement('p');
+            warningMsg.className = 'tts-warning';
+            warningMsg.textContent = "알림: 현재 브라우저에서는 음성 안내가 지원되지 않습니다.";
+            ttsStatusContainer.appendChild(warningMsg);
+        }
+      }
+    }
+    
+    function updateTranscriptDisplay(newText = "", role = "system") {
+        // (이전과 동일한 updateTranscriptDisplay 함수 내용)
+        if (role === "user" && newText) conversationHistory.push({ role: "user", content: newText });
+        else if (role === "assistant" && newText) conversationHistory.push({ role: "assistant", content: newText });
+        else if (role === "system" && newText) conversationHistory.push({ role: "system", content: `[안내] ${newText}` });
+        else if (role === "system_error" && newText) conversationHistory.push({ role: "system", content: `[오류] ${newText}` });
+
+        transcriptEl.innerHTML = conversationHistory.map(msg => {
+            const speakerName = msg.role === 'user' ? '민후' : (msg.role === 'assistant' ? 'AI 친구' : '시스템');
+            const speakerClass = msg.role === 'user' ? 'user-speaker' : (msg.role === 'assistant' ? 'assistant-speaker' : 'system-speaker');
+            const safeContent = (msg.content || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            return `<p><strong class="${speakerClass}">${speakerName}:</strong> ${safeContent}</p>`;
+        }).join('');
+        transcriptEl.scrollTop = transcriptEl.scrollHeight; // 항상 최신 내용으로 스크롤
+    }
+
+    async function startRecordingProcess() {
+        try {
+            // P5.js 시각화를 위한 스트림 요청 (STT와 별도 스트림 사용 시)
+            // 또는 STT와 동일 스트림을 사용하려면 STT 시작 후 해당 스트림을 P5에 전달
+            if (!mediaStreamForP5 || mediaStreamForP5.getAudioTracks().every(track => track.readyState === 'ended')) {
+                mediaStreamForP5 = await navigator.mediaDevices.getUserMedia({ audio: true });
+            }
+            await startVisualizer(canvasForVisualizer, mediaStreamForP5); // P5.js 시각화 시작
+            console.log("🟢 P5.js 시각화 시작됨");
+
+            // STT 시작 (STT는 내부적으로 마이크 권한을 다시 요청할 수 있음)
+            startSTT((text) => {
+                if (text) {
+                    localStorage.setItem('userSpeech', text);
+                    // 사용자 발화 중임을 시각적으로 표시 (임시)
+                    transcriptEl.innerHTML = conversationHistory.map(msg => `<p><strong>${msg.role === 'user' ? '민후' : 'AI 친구'}:</strong> ${msg.content.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`).join('') + 
+                                           `<p><strong>민후 (말하는 중):</strong> "${text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}"</p>`;
+                    transcriptEl.scrollTop = transcriptEl.scrollHeight;
+                } else if (isRecording) {
+                    updateTranscriptDisplay("음... 잘 못 들었어. 다시 말해줄래?", "system");
+                }
+            });
+            updateTranscriptDisplay("듣고 있어요... 말해주세요! 😊", "system");
+
+        } catch (err) {
+            console.error("🎤 녹음 프로세스 시작 오류:", err);
+            updateTranscriptDisplay(`마이크를 시작하지 못했어요. (${err.message})`, "system_error");
+            isRecording = false; // 오류 시 상태 복원
+            talkBtn.textContent = '대화하기';
+            talkBtn.classList.remove('active');
+            releaseMicrophoneResources(); // 시각화 및 스트림 정리
+        }
+    }
+
+    function releaseMicrophoneResources() {
+        stopVisualizer(); // P5.js 시각화 중지 (내부적으로 mic.stop() 호출)
+        if (mediaStreamForP5) {
+            mediaStreamForP5.getTracks().forEach(track => track.stop());
+            mediaStreamForP5 = null;
+            console.log("🎤 P5.js용 마이크 스트림 해제됨");
+        }
+        stopSTT(); // STT 중지 (내부적으로 recognition.stop())
+    }
+
+    talkBtn.addEventListener('click', async () => {
+      if (!isRecording) { // "대화하기" (녹음 시작)
+        isRecording = true;
+        talkBtn.textContent = '잠깐 쉬기';
+        talkBtn.classList.add('active');
+        interactionBtn.disabled = true; // 녹음 중에는 숨돌리기 버튼 비활성화
+        updateTranscriptDisplay("마이크 준비 중...", "system");
+        await startRecordingProcess();
+      } else { // "잠깐 쉬기" (녹음 중지)
+        isRecording = false;
+        talkBtn.textContent = '대화하기';
+        talkBtn.classList.remove('active');
+        interactionBtn.disabled = false; // 숨돌리기 버튼 다시 활성화
+        
+        releaseMicrophoneResources();
+
+        const lastUserSpeech = localStorage.getItem('userSpeech');
+        if (lastUserSpeech) {
+             updateTranscriptDisplay(`"${lastUserSpeech}" 라고 말했구나! 이제 [숨 돌리기]를 눌러 AI 친구와 이야기하거나, [대화하기]를 눌러 더 말할 수 있어.`, "system");
+        } else {
+            updateTranscriptDisplay("대화를 잠시 멈췄어요. 녹음된 내용이 없네요.", "system");
+        }
+      }
+    });
+
+    interactionBtn.addEventListener('click', async () => {
+      if (isRecording) { // 말하는 도중에 "숨 돌리기" 누르면 녹음부터 중지
+        isRecording = false;
+        talkBtn.textContent = '대화하기';
+        talkBtn.classList.remove('active');
+        releaseMicrophoneResources();
+      }
+      interactionBtn.disabled = true; // API 호출 중 버튼 비활성화
+      talkBtn.disabled = true; // API 호출 중 대화하기 버튼도 비활성화
+
+      const currentUserSpeech = localStorage.getItem('userSpeech');
+
+      if (interactionBtn.classList.contains('analysis-ready')) { // "대화 분석하기" 버튼일 때
+        if (currentUserSpeech) {
+             updateTranscriptDisplay(currentUserSpeech, "user");
+             localStorage.removeItem('userSpeech');
+        }
+        if (conversationHistory.length === 0) {
+            updateTranscriptDisplay("분석할 대화 내용이 없어요.", "system_error");
+            await attemptTTS("분석할 대화 내용이 없어요.");
+            interactionBtn.disabled = false; talkBtn.disabled = false;
+            return;
+        }
+        localStorage.setItem('fullConversation', JSON.stringify(conversationHistory));
+        const lastAmplitude = localStorage.getItem('currentAmplitude'); // P5 visualizer에서 저장한 값
+        if (lastAmplitude) localStorage.setItem('analysisAudioLevel', lastAmplitude);
+        
+        console.log("🚀 대화 분석하기. analysis.html로 이동합니다.");
+        window.location.href = 'analysis.html';
+        // 페이지 이동 후에는 버튼 상태 복원 불필요
+        return;
+      }
+
+      // "숨 돌리기" 버튼일 때
+      if (!currentUserSpeech || !currentUserSpeech.trim()) {
+        updateTranscriptDisplay("AI 친구와 이야기하려면 먼저 민후의 생각을 말해줘야 해.", "system");
+        await attemptTTS("이야기한 내용이 없어서 아직은 대화하기 어려워. 먼저 '대화하기' 버튼을 눌러서 네 생각을 말해줄래?");
+        interactionBtn.disabled = false; talkBtn.disabled = false;
+        return;
+      }
+      
+      updateTranscriptDisplay(currentUserSpeech, "user");
+      localStorage.removeItem('userSpeech');
+      
+      updateTranscriptDisplay("AI 친구가 민후의 이야기를 듣고 생각 중이에요... 🤔", "system");
+
+      try {
+        const gptResponse = await getGptResponse(currentUserSpeech, conversationHistory.slice(0, -1));
+        
+        let gptReplyText = "";
+        if (gptResponse && gptResponse.cognitiveDistortion && gptResponse.cognitiveDistortion.trim() !== "" && gptResponse.cognitiveDistortion !== "...") {
+            gptReplyText += gptResponse.cognitiveDistortion + " ";
+        }
+        if (gptResponse && gptResponse.rephrasing && gptResponse.rephrasing.trim() !== "" && gptResponse.rephrasing !== "...") {
+            gptReplyText += gptResponse.rephrasing + " ";
+        }
+        if (gptResponse && gptResponse.followUpQuestion && gptResponse.followUpQuestion.trim() !== "" && gptResponse.followUpQuestion !== "...") {
+            gptReplyText += gptResponse.followUpQuestion;
+        } else if (!gptReplyText.trim()) { 
+            gptReplyText = "음... 어떤 이야기를 더 해볼까?";
+        }
+        gptReplyText = gptReplyText.trim();
+
+        updateTranscriptDisplay(gptReplyText, "assistant");
+        await attemptTTS(gptReplyText);
+
+        turnCount++;
+        if (turnCount >= MAX_TURNS_BEFORE_ANALYSIS) {
+          interactionBtn.textContent = '대화 분석하기';
+          interactionBtn.classList.add('analysis-ready');
+          guideTextEl.innerHTML = "대화가 충분히 진행되었어요!<br>[대화 분석하기] 버튼을 눌러 결과를 확인해보세요.";
+        } else {
+          guideTextEl.innerHTML = "AI 친구의 이야기를 잘 들었나요?<br>다시 [대화하기]를 눌러 답변하거나, [숨 돌리기]로 다음 대화를 이어갈 수 있어요.";
+        }
+
+      } catch (error) {
+        console.error("❌ GPT 응답 처리 중 오류:", error);
+        updateTranscriptDisplay(`미안, 지금은 대답하기 조금 어려운 것 같아. (오류: ${error.message})`, "system_error");
+        await attemptTTS("미안, 지금은 대답하기 조금 어려운 것 같아. 나중에 다시 시도해 줄래?");
+      } finally {
+        interactionBtn.disabled = false;
+        talkBtn.disabled = false;
+      }
+    });
+
+    async function attemptTTS(textToSpeak) {
+        if (!ttsGenerallySupported || !textToSpeak || String(textToSpeak).trim() === "" || String(textToSpeak).trim() === "...") {
+            return;
+        }
+        try {
+            await startTTS(textToSpeak);
+        } catch (ttsError) {
+            console.warn(`TTS 재생 중 오류: "${String(textToSpeak).substring(0,30)}..."`, ttsError.message);
+            if (ttsError.message.includes("지원되지 않는")) {
+                checkTTSAvailability();
+            }
+        }
+    }
+  </script>
+</body>
+</html>
